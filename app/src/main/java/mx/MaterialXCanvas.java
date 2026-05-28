@@ -58,9 +58,13 @@ public class MaterialXCanvas extends JPanel {
         surface.addInput("base_color", new Color(220, 200, 80));
         surface.addOutput("out", new Color(80, 200, 100));
 
+        var time = new MxNode("Time", 50, -50, new Color(50, 50, 50));
+        time.addOutput("Time", new Color(50, 50, 50));
+
         nodes.add(texcoord);
         nodes.add(image);
         nodes.add(surface);
+        nodes.add(time);
 
         links.add(new Link(texcoord.getOutput("out"), image.getInput("uv")));
         links.add(new Link(image.getOutput("out_color"), surface.getInput("base_color")));
@@ -276,7 +280,6 @@ public class MaterialXCanvas extends JPanel {
                     newHoveredLink = findLinkAt(mouseScreen);
                 }
 
-                // Suppress hover highlight if the link is already selected
                 if (selectedLinks.contains(newHoveredLink)) {
                     newHoveredLink = null;
                 }
@@ -363,7 +366,6 @@ public class MaterialXCanvas extends JPanel {
         camera.scale(zoom, zoom);
         g2d.setTransform(camera);
 
-        // FIX: Now correctly passes link == hoveredLink to drawCurve
         for (Link link : links) {
             CubicCurve2D curve = createLinkCurve(link.source.getWorldCenterX(), link.source.getWorldCenterY(), link.target.getWorldCenterX(), link.target.getWorldCenterY());
             drawCurve(g2d, curve, false, selectedLinks.contains(link), link == hoveredLink);
@@ -412,6 +414,13 @@ public class MaterialXCanvas extends JPanel {
             Point p1 = worldToScreen(new Point2D.Double(tl.getX(), y)), p2 = worldToScreen(new Point2D.Double(br.getX(), y));
             g2d.drawLine(p1.x, p1.y, p2.x, p2.y);
         }
+
+        // Draw Origin Axes (X = Red, Y = Green)
+        Point origin = worldToScreen(new Point2D.Double(0, 0));
+        g2d.setColor(new Color(200, 50, 50, 100));
+        g2d.drawLine(0, origin.y, getWidth(), origin.y);
+        g2d.setColor(new Color(50, 200, 50, 100));
+        g2d.drawLine(origin.x, 0, origin.x, getHeight());
     }
 
     private void drawNode(Graphics2D g2d, MxNode node) {
@@ -485,7 +494,6 @@ public class MaterialXCanvas extends JPanel {
         }
     }
 
-    // FIX: Added isHovered parameter and proper priority handling
     private void drawCurve(Graphics2D g2d, CubicCurve2D curve, boolean isPreview, boolean isSelected, boolean isHovered) {
         Color color;
         float width;
@@ -544,9 +552,7 @@ public class MaterialXCanvas extends JPanel {
     }
 
     private Link findLinkAt(Point mouseScreen) {
-        // Convert mouse to World Space to match curve coordinates
         Point2D mouseWorld = screenToWorld(mouseScreen);
-        // Scale hit width inversely with zoom to maintain consistent screen-pixel tolerance
         float worldHitWidth = (float)(MaterialXTheme.LINK_HIT_WIDTH / zoom);
 
         for (int i = links.size() - 1; i >= 0; i--) {
