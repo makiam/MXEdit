@@ -149,13 +149,13 @@ public class MaterialXCanvas extends JPanel {
                     if (hitNode != null) {
                         selectedLinks.clear();
 
-                        if (!selectedNodes.contains(hitNode) && !shift) {
+                        if (selectedNodes.contains(hitNode) && shift) {
+                            selectedNodes.remove(hitNode);
+                        } else if (selectedNodes.contains(hitNode) && !shift) {
+                            // Already selected, keep it
+                        } else if (!selectedNodes.contains(hitNode) && !shift) {
                             selectedNodes.clear();
-                        }
-
-                        if (shift) {
-                            if (selectedNodes.contains(hitNode)) selectedNodes.remove(hitNode);
-                            else selectedNodes.add(hitNode);
+                            selectedNodes.add(hitNode);
                         } else {
                             selectedNodes.add(hitNode);
                         }
@@ -197,7 +197,9 @@ public class MaterialXCanvas extends JPanel {
                     return;
                 }
 
-                if (!selectedNodes.isEmpty() && dragOffsets.size() == selectedNodes.size()) {
+                if (selectedNodes.isEmpty() || dragOffsets.size() != selectedNodes.size()) {
+                    // Not dragging nodes
+                } else {
                     for (var n : selectedNodes) {
                         var off = dragOffsets.get(n);
                         n.x = worldPos.getX() - off.getX();
@@ -211,14 +213,30 @@ public class MaterialXCanvas extends JPanel {
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                if (dragStartPort != null && linkDragWorldPos != null) {
-                    var mouseScreen = e.getPoint();
+                if (dragStartPort == null || linkDragWorldPos == null) {
+                    isPanning = false;
+                    dragOffsets.clear();
+                    setCursor(Cursor.getDefaultCursor());
+                    return;
+                }
 
-                    if (dragStartPort.isOutput) {
-                        // Output -> Input
-                        var targetInput = findInputPortAt(mouseScreen);
-                        if (targetInput != null && targetInput != dragStartPort) {
-                            // Silently replace existing connection if occupied
+                var mouseScreen = e.getPoint();
+
+                if (dragStartPort.isOutput) {
+                    var targetInput = findInputPortAt(mouseScreen);
+                    if (targetInput == null || targetInput == dragStartPort) {
+                        // Invalid target, do nothing
+                    } else {
+                        var exactMatchExists = false;
+                        for (var l : links) {
+                            if (l.source == dragStartPort && l.target == targetInput) {
+                                exactMatchExists = true;
+                                break;
+                            }
+                        }
+                        if (exactMatchExists) {
+                            // Already connected exactly like this. Do nothing.
+                        } else {
                             links.removeIf(link -> link.target == targetInput);
                             if (targetInput.owner == dragStartPort.owner || wouldCreateCycle(dragStartPort.owner, targetInput.owner)) {
                                 triggerCycleWarning();
@@ -226,10 +244,22 @@ public class MaterialXCanvas extends JPanel {
                                 links.add(new Link(dragStartPort, targetInput));
                             }
                         }
+                    }
+                } else {
+                    var targetOutput = findOutputPortAt(mouseScreen);
+                    if (targetOutput == null || targetOutput == dragStartPort) {
+                        // Invalid target, do nothing
                     } else {
-                        // Input -> Output
-                        var targetOutput = findOutputPortAt(mouseScreen);
-                        if (targetOutput != null && targetOutput != dragStartPort) {
+                        var exactMatchExists = false;
+                        for (var l : links) {
+                            if (l.source == targetOutput && l.target == dragStartPort) {
+                                exactMatchExists = true;
+                                break;
+                            }
+                        }
+                        if (exactMatchExists) {
+                            // Already connected exactly like this. Do nothing.
+                        } else {
                             links.removeIf(link -> link.target == dragStartPort);
                             if (targetOutput.owner == dragStartPort.owner || wouldCreateCycle(targetOutput.owner, dragStartPort.owner)) {
                                 triggerCycleWarning();
@@ -238,17 +268,12 @@ public class MaterialXCanvas extends JPanel {
                             }
                         }
                     }
-
-                    dragStartPort = null;
-                    linkDragWorldPos = null;
-                    setCursor(Cursor.getDefaultCursor());
-                    repaint();
-                    return;
                 }
 
-                isPanning = false;
-                dragOffsets.clear();
+                dragStartPort = null;
+                linkDragWorldPos = null;
                 setCursor(Cursor.getDefaultCursor());
+                repaint();
             }
 
             @Override
@@ -317,13 +342,17 @@ public class MaterialXCanvas extends JPanel {
                 if (e.getKeyCode() == KeyEvent.VK_DELETE || e.getKeyCode() == KeyEvent.VK_BACK_SPACE) {
                     var graphChanged = false;
 
-                    if (!selectedLinks.isEmpty()) {
+                    if (selectedLinks.isEmpty()) {
+                        // No links selected
+                    } else {
                         links.removeAll(selectedLinks);
                         selectedLinks.clear();
                         graphChanged = true;
                     }
 
-                    if (!selectedNodes.isEmpty()) {
+                    if (selectedNodes.isEmpty()) {
+                        // No nodes selected
+                    } else {
                         var connectedLinks = new ArrayList<Link>();
                         for (var l : links) {
                             if (selectedNodes.contains(l.source.owner) || selectedNodes.contains(l.target.owner)) {
@@ -503,11 +532,11 @@ public class MaterialXCanvas extends JPanel {
         g2d.draw(new Ellipse2D.Double(cx - r, cy - r, r * 2, r * 2));
 
         g2d.setColor(Color.WHITE);
-        if (!port.isOutput) {
-            g2d.fill(new Ellipse2D.Double(cx - 1.5, cy - 1.5, 3, 3));
-        } else {
+        if (port.isOutput) {
             g2d.setStroke(new BasicStroke(1.2f));
             g2d.draw(new Ellipse2D.Double(cx - 2, cy - 2, 4, 4));
+        } else {
+            g2d.fill(new Ellipse2D.Double(cx - 1.5, cy - 1.5, 3, 3));
         }
     }
 
