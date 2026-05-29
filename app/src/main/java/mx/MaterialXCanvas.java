@@ -7,7 +7,7 @@ import java.awt.geom.*;
 import java.util.*;
 import java.util.List;
 
-public class MaterialXCanvas extends JPanel {
+public final class MaterialXCanvas extends JPanel implements MouseWheelListener {
 
     // --- Camera State ---
     private double panX = 0, panY = 0, zoom = 1.0;
@@ -41,8 +41,9 @@ public class MaterialXCanvas extends JPanel {
         setFocusable(true);
         setupDummyGraph();
         setupInputListeners();
+        setupKeyListeners();
+        addMouseWheelListener(this);
 
-        // Center world origin (0,0) to the viewport center after layout
         SwingUtilities.invokeLater(() -> {
             panX = getWidth() / 2.0;
             panY = getHeight() / 2.0;
@@ -96,7 +97,6 @@ public class MaterialXCanvas extends JPanel {
                 if (SwingUtilities.isLeftMouseButton(e)) {
                     var shift = e.isShiftDown();
 
-                    // 1. Check ALL Ports to start link creation
                     for (var n : nodes) {
                         for (var p : n.outputs) {
                             if (isPortHit(p, mouseScreen)) {
@@ -116,7 +116,6 @@ public class MaterialXCanvas extends JPanel {
                         }
                     }
 
-                    // 2. Check Link Selection
                     var hitLink = findLinkAt(mouseScreen);
                     if (hitLink != null) {
                         selectedNodes.clear();
@@ -125,7 +124,7 @@ public class MaterialXCanvas extends JPanel {
                             else selectedLinks.add(hitLink);
                         } else {
                             if (selectedLinks.contains(hitLink)) {
-                                // Already selected, keep it
+                                // Already selected
                             } else {
                                 selectedLinks.clear();
                                 selectedLinks.add(hitLink);
@@ -136,7 +135,6 @@ public class MaterialXCanvas extends JPanel {
                         return;
                     }
 
-                    // 3. Check Node Hit / Multi-Selection
                     MxNode hitNode = null;
                     for (var i = nodes.size() - 1; i >= 0; i--) {
                         var n = nodes.get(i);
@@ -152,7 +150,7 @@ public class MaterialXCanvas extends JPanel {
                         if (selectedNodes.contains(hitNode) && shift) {
                             selectedNodes.remove(hitNode);
                         } else if (selectedNodes.contains(hitNode) && !shift) {
-                            // Already selected, keep it
+                            // Already selected
                         } else if (!selectedNodes.contains(hitNode) && !shift) {
                             selectedNodes.clear();
                             selectedNodes.add(hitNode);
@@ -225,7 +223,7 @@ public class MaterialXCanvas extends JPanel {
                 if (dragStartPort.isOutput) {
                     var targetInput = findInputPortAt(mouseScreen);
                     if (targetInput == null || targetInput == dragStartPort) {
-                        // Invalid target, do nothing
+                        // Invalid target
                     } else {
                         var exactMatchExists = false;
                         for (var l : links) {
@@ -235,12 +233,14 @@ public class MaterialXCanvas extends JPanel {
                             }
                         }
                         if (exactMatchExists) {
-                            // Already connected exactly like this. Do nothing.
+                            // Already connected exactly like this.
                         } else {
-                            links.removeIf(link -> link.target == targetInput);
-                            if (targetInput.owner == dragStartPort.owner || wouldCreateCycle(dragStartPort.owner, targetInput.owner)) {
+                            // FIX: Validate FIRST, mutate SECOND
+                            var isInvalid = (targetInput.owner == dragStartPort.owner) || wouldCreateCycle(dragStartPort.owner, targetInput.owner);
+                            if (isInvalid) {
                                 triggerCycleWarning();
                             } else {
+                                links.removeIf(link -> link.target == targetInput);
                                 links.add(new Link(dragStartPort, targetInput));
                             }
                         }
@@ -248,7 +248,7 @@ public class MaterialXCanvas extends JPanel {
                 } else {
                     var targetOutput = findOutputPortAt(mouseScreen);
                     if (targetOutput == null || targetOutput == dragStartPort) {
-                        // Invalid target, do nothing
+                        // Invalid target
                     } else {
                         var exactMatchExists = false;
                         for (var l : links) {
@@ -258,12 +258,14 @@ public class MaterialXCanvas extends JPanel {
                             }
                         }
                         if (exactMatchExists) {
-                            // Already connected exactly like this. Do nothing.
+                            // Already connected exactly like this.
                         } else {
-                            links.removeIf(link -> link.target == dragStartPort);
-                            if (targetOutput.owner == dragStartPort.owner || wouldCreateCycle(targetOutput.owner, dragStartPort.owner)) {
+                            // FIX: Validate FIRST, mutate SECOND
+                            var isInvalid = (targetOutput.owner == dragStartPort.owner) || wouldCreateCycle(targetOutput.owner, dragStartPort.owner);
+                            if (isInvalid) {
                                 triggerCycleWarning();
                             } else {
+                                links.removeIf(link -> link.target == dragStartPort);
                                 links.add(new Link(targetOutput, dragStartPort));
                             }
                         }
@@ -273,19 +275,6 @@ public class MaterialXCanvas extends JPanel {
                 dragStartPort = null;
                 linkDragWorldPos = null;
                 setCursor(Cursor.getDefaultCursor());
-                repaint();
-            }
-
-            @Override
-            public void mouseWheelMoved(MouseWheelEvent e) {
-                var oldZoom = zoom;
-                var factor = e.getWheelRotation() > 0 ? 1 / 1.1 : 1.1;
-                zoom = Math.max(MaterialXTheme.MIN_ZOOM, Math.min(MaterialXTheme.MAX_ZOOM, zoom * factor));
-
-                var mx = e.getX();
-                var my = e.getY();
-                panX = mx - (mx - panX) * (zoom / oldZoom);
-                panY = my - (my - panY) * (zoom / oldZoom);
                 repaint();
             }
 
@@ -330,8 +319,28 @@ public class MaterialXCanvas extends JPanel {
 
         addMouseListener(mouse);
         addMouseMotionListener(mouse);
-        addMouseWheelListener(mouse);
+    }
 
+    // ==========================================
+    // 3. CLASS-LEVEL MOUSE WHEEL HANDLER
+    // ==========================================
+    @Override
+    public void mouseWheelMoved(MouseWheelEvent e) {
+        var oldZoom = zoom;
+        var factor = e.getWheelRotation() > 0 ? 1 / 1.1 : 1.1;
+        zoom = Math.max(MaterialXTheme.MIN_ZOOM, Math.min(MaterialXTheme.MAX_ZOOM, zoom * factor));
+
+        var mx = e.getX();
+        var my = e.getY();
+        panX = mx - (mx - panX) * (zoom / oldZoom);
+        panY = my - (my - panY) * (zoom / oldZoom);
+        repaint();
+    }
+
+    // ==========================================
+    // 4. KEY LISTENER
+    // ==========================================
+    private void setupKeyListeners() {
         addKeyListener(new KeyAdapter() {
             @Override public void keyPressed(KeyEvent e) {
                 if (e.getKeyCode() == KeyEvent.VK_SPACE) {
@@ -390,7 +399,7 @@ public class MaterialXCanvas extends JPanel {
     }
 
     // ==========================================
-    // 3. RENDERING
+    // 5. RENDERING
     // ==========================================
     @Override
     protected void paintComponent(Graphics g) {
@@ -459,7 +468,6 @@ public class MaterialXCanvas extends JPanel {
             g2d.drawLine(p1.x, p1.y, p2.x, p2.y);
         }
 
-        // Draw Origin Axes (X = Red, Y = Green)
         var origin = worldToScreen(new Point2D.Double(0, 0));
         g2d.setColor(new Color(200, 50, 50, 100));
         g2d.drawLine(0, origin.y, getWidth(), origin.y);
@@ -563,7 +571,7 @@ public class MaterialXCanvas extends JPanel {
     }
 
     // ==========================================
-    // 4. HIT-TESTING & UTILITIES
+    // 6. HIT-TESTING & UTILITIES
     // ==========================================
     private static CubicCurve2D createLinkCurve(double x1, double y1, double x2, double y2) {
         var dx = x2 - x1;
@@ -657,7 +665,7 @@ public class MaterialXCanvas extends JPanel {
     }
 
     // ==========================================
-    // 5. DATA MODELS
+    // 7. DATA MODELS
     // ==========================================
     public static class MxNode {
         public String name;
